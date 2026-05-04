@@ -289,6 +289,19 @@ def postback():
 
 @app.route("/status")
 def status_check():
+    @app.route("/test-email")
+def test_email():
+    try:
+        msg = MIMEText("Test email from Supertrend bot. Email is working correctly.")
+        msg["Subject"] = "Supertrend Bot — Email Test"
+        msg["From"]    = GMAIL_USER
+        msg["To"]      = NOTIFY_EMAIL
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
+            s.login(GMAIL_USER, GMAIL_PASS)
+            s.sendmail(GMAIL_USER, NOTIFY_EMAIL, msg.as_string())
+        return "Email sent successfully! Check skopally@gmail.com", 200
+    except Exception as e:
+        return f"Email FAILED: {str(e)}", 500
     return jsonify({
         "status"      : "LOCKED" if is_locked() else "ACTIVE",
         "logged_in"   : state["access_token"] is not None,
