@@ -14,7 +14,7 @@ API_KEY        = os.environ.get("KITE_API_KEY")
 API_SECRET     = os.environ.get("KITE_API_SECRET")
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "natgas2026")
 GMAIL_USER     = os.environ.get("GMAIL_USER")
-GMAIL_PASS     = os.environ.get("GMAIL_PASS", "").replace(" ", "")
+GMAIL_PASS = os.environ.get("GMAIL_PASS", "").replace(" ", "")
 NOTIFY_EMAIL   = os.environ.get("NOTIFY_EMAIL", "skopally@gmail.com")
 
 SYMBOL     = "NATURALGAS26MAYFUT"
