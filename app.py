@@ -1,4 +1,10 @@
-import os, pytz, logging, smtplib, threading, time, urllib.request
+import os
+import pytz
+import logging
+import smtplib
+import threading
+import time
+import urllib.request
 from email.mime.text import MIMEText
 from datetime import datetime
 from flask import Flask, request, jsonify, redirect
@@ -31,24 +37,28 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 kite = KiteConnect(api_key=API_KEY)
 
+
 def keep_alive():
     while True:
         time.sleep(840)
         try:
-            urllib.request.urlopen("https://supertrend-bot-av8n.onrender.com/")
+            urllib.request.urlopen(
+                "https://supertrend-bot-av8n.onrender.com/")
             logging.info("Keep-alive OK")
         except Exception as e:
             logging.error(f"Keep-alive error: {e}")
 
+
 threading.Thread(target=keep_alive, daemon=True).start()
+
 
 def send_email(subject, body):
     def _send():
         try:
             msg = MIMEText(body)
             msg["Subject"] = subject
-            msg["From"]    = GMAIL_USER
-            msg["To"]      = NOTIFY_EMAIL
+            msg["From"] = GMAIL_USER
+            msg["To"] = NOTIFY_EMAIL
             with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
                 s.login(GMAIL_USER, GMAIL_PASS)
                 s.sendmail(GMAIL_USER, NOTIFY_EMAIL, msg.as_string())
@@ -57,15 +67,18 @@ def send_email(subject, body):
             logging.error(f"Email FAILED: {e}")
     threading.Thread(target=_send, daemon=True).start()
 
+
 def check_month_reset():
     now_month = datetime.now(pytz.timezone("Asia/Kolkata")).month
     if now_month != state["current_month"]:
-        state["loss_count"]    = 0
+        state["loss_count"] = 0
         state["current_month"] = now_month
+
 
 def is_locked():
     check_month_reset()
     return state["loss_count"] >= MAX_LOSSES
+
 
 def get_ltp():
     try:
@@ -74,6 +87,7 @@ def get_ltp():
     except Exception as e:
         logging.error(f"LTP error: {e}")
         return None
+
 
 def place_order(direction):
     if not state["access_token"]:
@@ -84,136 +98,212 @@ def place_order(direction):
     if not ltp:
         send_email("BOT ERROR", "Could not fetch LTP.")
         return False
-    qty          = LOTS * LOT_SIZE
-    txn_type     = kite.TRANSACTION_TYPE_SELL if direction == "short" else kite.TRANSACTION_TYPE_BUY
-    sl_price     = round(ltp + SL_PTS, 1) if direction == "short" else round(ltp - SL_PTS, 1)
-    target_price = round(ltp - TP_PTS, 1) if direction == "short" else round(ltp + TP_PTS, 1)
+    qty = LOTS * LOT_SIZE
+    if direction == "short":
+        txn_type = kite.TRANSACTION_TYPE_SELL
+        sl_price = round(ltp + SL_PTS, 1)
+        target_price = round(ltp - TP_PTS, 1)
+    else:
+        txn_type = kite.TRANSACTION_TYPE_BUY
+        sl_price = round(ltp - SL_PTS, 1)
+        target_price = round(ltp + TP_PTS, 1)
     try:
         order_id = kite.place_order(
-            variety=kite.VARIETY_REGULAR, exchange=EXCHANGE,
-            tradingsymbol=SYMBOL, transaction_type=txn_type,
-            quantity=qty, product=PRODUCT,
-            order_type=kite.ORDER_TYPE_MARKET, validity=kite.VALIDITY_DAY)
-        send_email(f"ORDER PLACED — {direction.upper()}",
-            f"Direction: {direction.upper()}\nSymbol: {SYMBOL}\n"
-            f"Qty: {qty} units\nLTP: Rs.{ltp}\n"
-            f"SL: Rs.{sl_price}\nTP: Rs.{target_price}\n"
-            f"Order ID: {order_id}\nLosses: {state['loss_count']}/{MAX_LOSSES}")
+            variety=kite.VARIETY_REGULAR,
+            exchange=EXCHANGE,
+            tradingsymbol=SYMBOL,
+            transaction_type=txn_type,
+            quantity=qty,
+            product=PRODUCT,
+            order_type=kite.ORDER_TYPE_MARKET,
+            validity=kite.VALIDITY_DAY
+        )
+        body = (
+            "Direction: " + direction.upper() + "\n"
+            "Symbol: " + SYMBOL + "\n"
+            "Qty: " + str(qty) + " units\n"
+            "LTP: Rs." + str(ltp) + "\n"
+            "SL: Rs." + str(sl_price) + "\n"
+            "TP: Rs." + str(target_price) + "\n"
+            "Order ID: " + str(order_id) + "\n"
+            "Losses: " + str(state["loss_count"]) + "/" + str(MAX_LOSSES)
+        )
+        send_email("ORDER PLACED - " + direction.upper(), body)
         state["position"] = direction
         return True
     except Exception as e:
         send_email("ORDER FAILED", str(e))
         return False
 
+
 def close_position():
-    if not state["position"]: return
+    if not state["position"]:
+        return
     kite.set_access_token(state["access_token"])
-    ltp      = get_ltp()
-    txn_type = kite.TRANSACTION_TYPE_BUY if state["position"] == "short" else kite.TRANSACTION_TYPE_SELL
+    ltp = get_ltp()
+    if state["position"] == "short":
+        txn_type = kite.TRANSACTION_TYPE_BUY
+    else:
+        txn_type = kite.TRANSACTION_TYPE_SELL
     try:
         order_id = kite.place_order(
-            variety=kite.VARIETY_REGULAR, exchange=EXCHANGE,
-            tradingsymbol=SYMBOL, transaction_type=txn_type,
-            quantity=LOTS*LOT_SIZE, product=PRODUCT,
-            order_type=kite.ORDER_TYPE_MARKET, validity=kite.VALIDITY_DAY)
-        send_email(f"CLOSED — {state['position'].upper()}",
-                   f"LTP: Rs.{ltp}\nOrder ID: {order_id}")
+            variety=kite.VARIETY_REGULAR,
+            exchange=EXCHANGE,
+            tradingsymbol=SYMBOL,
+            transaction_type=txn_type,
+            quantity=LOTS * LOT_SIZE,
+            product=PRODUCT,
+            order_type=kite.ORDER_TYPE_MARKET,
+            validity=kite.VALIDITY_DAY
+        )
+        send_email(
+            "CLOSED - " + state["position"].upper(),
+            "LTP: Rs." + str(ltp) + "\nOrder ID: " + str(order_id)
+        )
         state["position"] = None
     except Exception as e:
         send_email("CLOSE FAILED", str(e))
 
+
 @app.route("/")
 def home():
-    return jsonify({"status": "LOCKED" if is_locked() else "ACTIVE",
-                    "losses": state["loss_count"], "max_losses": MAX_LOSSES,
-                    "position": state["position"],
-                    "logged_in": state["access_token"] is not None})
+    return jsonify({
+        "status": "LOCKED" if is_locked() else "ACTIVE",
+        "losses": state["loss_count"],
+        "max_losses": MAX_LOSSES,
+        "position": state["position"],
+        "logged_in": state["access_token"] is not None
+    })
+
 
 @app.route("/login")
 def login():
     return redirect(kite.login_url())
 
+
 @app.route("/callback")
 def callback():
-    status        = request.args.get("status")
+    status = request.args.get("status")
     request_token = request.args.get("request_token")
-    if status != "success": return f"Login cancelled: {status}", 400
-    if not request_token:   return "Missing request_token", 400
+    if status != "success":
+        return "Login cancelled: " + str(status), 400
+    if not request_token:
+        return "Missing request_token", 400
     try:
-        session = kite.generate_session(request_token, api_secret=API_SECRET)
+        session = kite.generate_session(
+            request_token, api_secret=API_SECRET)
         state["access_token"] = session["access_token"]
         kite.set_access_token(state["access_token"])
-        send_email("BOT LOGIN SUCCESS", "Supertrend bot is now live and ready to trade.")
-        return "<html><body style='font-family:Arial;padding:40px'><h2 style='color:green'>&#10003; Login Successful</h2><p>Bot is <strong>ACTIVE</strong>. You can close this tab.</p></body></html>", 200
+        send_email(
+            "BOT LOGIN SUCCESS",
+            "Supertrend bot is now live and ready to trade."
+        )
+        html = (
+            "<html><body style='font-family:Arial;padding:40px'>"
+            "<h2 style='color:green'>Login Successful</h2>"
+            "<p>Bot is ACTIVE. You can close this tab.</p>"
+            "</body></html>"
+        )
+        return html, 200
     except Exception as e:
-        logging.error(f"Callback error: {e}")
-        return f"Login failed: {str(e)}", 500
+        logging.error("Callback error: " + str(e))
+        return "Login failed: " + str(e), 500
+
 
 @app.route("/test-email")
 def test_email():
     try:
         msg = MIMEText("Test email from Supertrend bot. Gmail is working.")
-        msg["Subject"] = "Supertrend Bot — Email Test"
-        msg["From"]    = GMAIL_USER
-        msg["To"]      = NOTIFY_EMAIL
+        msg["Subject"] = "Supertrend Bot - Email Test"
+        msg["From"] = GMAIL_USER
+        msg["To"] = NOTIFY_EMAIL
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
             s.login(GMAIL_USER, GMAIL_PASS)
             s.sendmail(GMAIL_USER, NOTIFY_EMAIL, msg.as_string())
-        return f"Email sent to {NOTIFY_EMAIL}. Check inbox!", 200
+        return "Email sent to " + str(NOTIFY_EMAIL) + ". Check inbox!", 200
     except Exception as e:
-        return f"Email FAILED: {str(e)}", 500
+        return "Email FAILED: " + str(e), 500
+
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
     secret = request.args.get("secret")
     if secret != WEBHOOK_SECRET:
         return jsonify({"error": "Unauthorised"}), 401
-    data   = request.get_json(force=True)
+    data = request.get_json(force=True)
     signal = str(data.get("signal", "")).lower()
-    logging.info(f"Webhook: {signal}")
+    logging.info("Webhook: " + signal)
     if is_locked():
-        send_email("SIGNAL BLOCKED", f"{signal.upper()} blocked — {state['loss_count']}/{MAX_LOSSES} losses")
+        send_email(
+            "SIGNAL BLOCKED",
+            signal.upper() + " blocked - " +
+            str(state["loss_count"]) + "/" + str(MAX_LOSSES) + " losses"
+        )
         return jsonify({"status": "locked"}), 200
     if signal in ("short", "s"):
-        if state["position"] == "long": close_position()
+        if state["position"] == "long":
+            close_position()
         place_order("short")
     elif signal in ("long", "l"):
-        if state["position"] == "short": close_position()
+        if state["position"] == "short":
+            close_position()
         place_order("long")
     elif signal in ("close", "exit"):
         close_position()
     else:
-        return jsonify({"error": f"Unknown signal: {signal}"}), 400
+        return jsonify({"error": "Unknown signal: " + signal}), 400
     return jsonify({"status": "ok", "signal": signal}), 200
+
 
 @app.route("/postback", methods=["POST"])
 def postback():
-    data     = request.get_json(force=True)
-    status   = data.get("status", "")
+    data = request.get_json(force=True)
+    status = data.get("status", "")
     order_id = data.get("order_id", "")
     if status == "REJECTED":
-        send_email("ORDER REJECTED", f"Order ID: {order_id}\nReason: {data.get('status_message')}")
+        send_email(
+            "ORDER REJECTED",
+            "Order ID: " + str(order_id) + "\n" +
+            "Reason: " + str(data.get("status_message", "Unknown"))
+        )
     if status == "COMPLETE":
-        send_email(f"ORDER FILLED — {data.get('transaction_type')}",
-                   f"Avg: Rs.{data.get('average_price')}\nOrder ID: {order_id}")
+        send_email(
+            "ORDER FILLED - " + str(data.get("transaction_type", "")),
+            "Avg: Rs." + str(data.get("average_price", 0)) +
+            "\nOrder ID: " + str(order_id)
+        )
         try:
-            if float(str(data.get("pnl", 0)).replace(",", "")) < 0:
+            pnl = float(str(data.get("pnl", 0)).replace(",", ""))
+            if pnl < 0:
                 state["loss_count"] += 1
-                send_email(f"LOSS {state['loss_count']}/{MAX_LOSSES}",
-                           f"Monthly losses: {state['loss_count']} of {MAX_LOSSES}")
+                send_email(
+                    "LOSS " + str(state["loss_count"]) + "/" + str(MAX_LOSSES),
+                    "Monthly losses: " + str(state["loss_count"]) +
+                    " of " + str(MAX_LOSSES)
+                )
                 if state["loss_count"] >= MAX_LOSSES:
-                    send_email("MONTH LOCKED", "5 losses reached. No trades until next month.")
-        except Exception: pass
+                    send_email(
+                        "MONTH LOCKED",
+                        "5 losses reached. No trades until next month."
+                    )
+        except Exception:
+            pass
     return "ok", 200
+
 
 @app.route("/status")
 def status_check():
-    return jsonify({"status": "LOCKED" if is_locked() else "ACTIVE",
-                    "logged_in": state["access_token"] is not None,
-                    "position": state["position"],
-                    "loss_count": state["loss_count"],
-                    "symbol": SYMBOL, "sl_pts": SL_PTS,
-                    "tp_pts": TP_PTS, "lots": LOTS})
+    return jsonify({
+        "status": "LOCKED" if is_locked() else "ACTIVE",
+        "logged_in": state["access_token"] is not None,
+        "position": state["position"],
+        "loss_count": state["loss_count"],
+        "symbol": SYMBOL,
+        "sl_pts": SL_PTS,
+        "tp_pts": TP_PTS,
+        "lots": LOTS
+    })
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
